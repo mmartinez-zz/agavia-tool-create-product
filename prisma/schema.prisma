@@ -17,6 +17,6 @@ model Product {
   sourceUrl   String?
   sourceType  String?
   createdAt   DateTime @default(now())
-
+  updatedAt   DateTime @updatedAt
   @@map("products")
 }

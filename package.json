@@ -6,10 +6,12 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
+    "start:dev": "ts-node src/server.ts",
     "postinstall": "prisma generate",
     "dev": "ts-node src/server.ts",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "echo '❌ DO NOT RUN MIGRATIONS IN PRODUCTION'",
+    "test:tool": "curl -X POST http://localhost:3000/execute -H 'Content-Type: application/json' -d '{\"tool\":\"create_product_from_chat\",\"businessId\":\"test\",\"args\":{\"title\":\"Test\",\"price\":100}}'"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
