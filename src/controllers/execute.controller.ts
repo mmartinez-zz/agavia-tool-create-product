@@ -7,10 +7,6 @@ const router = Router();
 router.post('/execute', async (req: Request, res: Response) => {
   const body: ExecuteRequest = req.body;
 
-  if (!body.businessId || typeof body.businessId !== 'string') {
-    return res.json({ success: false, error: 'VALIDATION_ERROR' });
-  }
-
   if (!body.tool || typeof body.tool !== 'string') {
     return res.json({ success: false, error: 'VALIDATION_ERROR' });
   }
@@ -19,7 +15,11 @@ router.post('/execute', async (req: Request, res: Response) => {
     return res.json({ success: false, error: 'VALIDATION_ERROR' });
   }
 
-  const result = await executeTool(body.tool, body.businessId, body.args);
+  if (!body.context || typeof body.context !== 'object' || !body.context.businessId) {
+    return res.json({ success: false, error: 'VALIDATION_ERROR' });
+  }
+
+  const result = await executeTool(body.tool, body.context, body.args);
   return res.json(result);
 });
 

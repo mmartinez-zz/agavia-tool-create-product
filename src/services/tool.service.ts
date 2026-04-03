@@ -1,4 +1,4 @@
-import { ToolHandler, ToolResult } from '../types';
+import { ToolContext, ToolHandler, ToolResult } from '../types';
 import { createProductTool } from '../tools/createProduct.tool';
 
 const toolRegistry: Record<string, ToolHandler> = {
@@ -7,7 +7,7 @@ const toolRegistry: Record<string, ToolHandler> = {
 
 export async function executeTool(
   tool: string,
-  businessId: string,
+  context: ToolContext,
   args: Record<string, any>
 ): Promise<ToolResult> {
   const handler = toolRegistry[tool];
@@ -17,7 +17,7 @@ export async function executeTool(
   }
 
   try {
-    return await handler(businessId, args);
+    return await handler(context, args);
   } catch (error: any) {
     console.error(`[${tool}] Error: ${error.message}`);
     if (error.message === 'TIMEOUT') {

@@ -4,7 +4,7 @@ import { createProduct } from '../repositories/product.repository';
 const TIMEOUT_MS = 3000;
 
 export const createProductTool: ToolHandler = async (
-  businessId,
+  context,
   args
 ): Promise<ToolResult> => {
   const title = typeof args.title === 'string' ? args.title.trim() : '';
@@ -19,7 +19,7 @@ export const createProductTool: ToolHandler = async (
 
   const product = await Promise.race([
     createProduct({
-      businessId,
+      businessId: context.businessId,
       title,
       description: args.description ?? null,
       price: typeof args.price === 'number' ? args.price : 0,
