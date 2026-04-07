@@ -1,7 +1,7 @@
 import { ToolHandler, ToolResult } from '../types';
 import { createProduct } from '../repositories/product.repository';
 
-const TIMEOUT_MS = 3000;
+const TIMEOUT_MS = 5000;
 
 export const createProductTool: ToolHandler = async (
   context,

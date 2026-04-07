@@ -1,8 +1,10 @@
 import { ToolContext, ToolHandler, ToolResult } from '../types';
 import { createProductTool } from '../tools/createProduct.tool';
+import { extractProductsFromImageTool } from '../tools/extractProductsFromImage.tool';
 
 const toolRegistry: Record<string, ToolHandler> = {
   create_product_from_chat: createProductTool,
+  extract_products_from_image: extractProductsFromImageTool,
 };
 
 export async function executeTool(
