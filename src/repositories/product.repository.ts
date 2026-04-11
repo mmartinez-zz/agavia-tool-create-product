@@ -23,11 +23,11 @@ export async function createProduct(data: CreateProductData) {
       businessId: data.businessId,
       displayId: nextDisplayId,
       title: data.title,
-      description: data.description ?? null,
+      description: data.description ?? undefined,
       price: data.price ?? 0,
-      imageUrl: data.imageUrl ?? null,
-      sourceUrl: data.sourceUrl ?? null,
-      sourceType: data.sourceType ?? null,
+      imageUrl: data.imageUrl ?? undefined,
+      sourceUrl: data.sourceUrl ?? undefined,
+      sourceType: data.sourceType ?? undefined,
     },
   });
 }
