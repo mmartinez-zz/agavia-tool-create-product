@@ -8,5 +8,5 @@ app.use(express.json());
 app.use(executeRouter);
 
 app.listen(PORT, () => {
-  console.log(`[tool-create-product] Running on port ${PORT}`);
+  console.log(`[agavia-products-ms] Running on port ${PORT}`);
 });

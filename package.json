@@ -1,7 +1,7 @@
 {
-  "name": "agavia-tool-create-product",
+  "name": "agavia-products-ms",
   "version": "1.0.0",
-  "description": "Remote tool microservice: create_product_from_chat",
+  "description": "Products microservice for AGAVIA conversational system",
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc",
