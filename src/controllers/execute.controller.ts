@@ -14,15 +14,15 @@ router.post('/execute', async (req: Request, res: Response) => {
   });
 
   if (!body.tool || typeof body.tool !== 'string') {
-    return res.json({ success: false, error: 'VALIDATION_ERROR' });
+    return res.json({ success: false, error: 'VALIDATION_ERROR: body.tool must be a string' });
   }
 
   if (!body.args || typeof body.args !== 'object') {
-    return res.json({ success: false, error: 'VALIDATION_ERROR' });
+    return res.json({ success: false, error: 'VALIDATION_ERROR: body.args must be an object' });
   }
 
   if (!body.context || typeof body.context !== 'object' || !body.context.businessId) {
-    return res.json({ success: false, error: 'VALIDATION_ERROR' });
+    return res.json({ success: false, error: 'VALIDATION_ERROR: body.context must be an object with businessId' });
   }
 
   console.debug('[execute] Request validated', {
@@ -34,7 +34,7 @@ router.post('/execute', async (req: Request, res: Response) => {
 
   console.info('[execute] Response', {
     tool: body.tool,
-    success: result?.success
+    success: result?.success ?? false
   });
 
   return res.json(result);
