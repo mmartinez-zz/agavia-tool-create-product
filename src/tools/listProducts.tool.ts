@@ -1,6 +1,8 @@
+import { Logger } from "@nestjs/common";
 import { ToolHandler, ToolResult } from "../types";
-import prisma from "../prisma";
-import { Prisma } from "@prisma/client";
+import { db } from "../db/db-client";
+
+const logger = new Logger("listProductsTool");
 
 function buildDateFilter(
   dateFrom?: string,
@@ -31,56 +33,102 @@ function parseISODate(value?: string): Date | null {
 
 export const listProductsTool: ToolHandler = async (
   context,
-  
+
   args,
 ): Promise<ToolResult> => {
-  console.info('[listProducts] Request', { businessId: context.businessId, args });
+  logger.log(`[listProducts] Request - businessId: ${context.businessId}`);
 
   const limit = Math.min(args.limit || 10, 50);
   const offset = Math.max(args.offset || 0, 0);
   const filters = args.filters || {};
   const text: string | undefined = filters.text?.trim();
   const businessId = context.businessId;
-  const orderField = args.orderBy || 'createdAt';
-  const orderDirection = args.orderDirection || 'desc';
+  const orderField = args.orderBy || "createdAt";
+  const orderDirection = args.orderDirection || "desc";
 
   const dateFilter = buildDateFilter(filters.dateFrom, filters.dateTo);
 
-  const searchTokens = text ? text.toLowerCase().split(/\s+/).filter(t => t.length > 0) : [];
+  const searchTokens = text
+    ? text
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((t) => t.length > 0)
+    : [];
 
-  const where: Prisma.ProductWhereInput = {
-    businessId,
-    ...(dateFilter && { createdAt: dateFilter }),
-    ...(text && {
-      OR: [
-        { title: { contains: text, mode: "insensitive" } },
-        { description: { contains: text, mode: "insensitive" } },
-        ...(searchTokens.length > 0 ? [{ keywords: { hasSome: searchTokens } }] : []),
-      ],
-    }),
-  };
+  let whereClauses: string[] = [`"businessId" = $1`, `is_active = true`];
+  const params: any[] = [businessId];
+  let paramIndex = 2;
 
-  const [products, total] = await Promise.all([
-    prisma.product.findMany({
-      where,
-      orderBy: { [orderField]: orderDirection },
-      take: limit,
-      skip: offset,
-    }),
-    prisma.product.count({ where }),
+  if (dateFilter) {
+    if (dateFilter.gte) {
+      whereClauses.push(`"createdAt" >= $${paramIndex}`);
+      params.push(dateFilter.gte);
+      paramIndex++;
+    }
+    if (dateFilter.lte) {
+      whereClauses.push(`"createdAt" <= $${paramIndex}`);
+      params.push(dateFilter.lte);
+      paramIndex++;
+    }
+  }
+
+  if (searchTokens.length > 0) {
+    const tokenConditions = searchTokens.map((token) => {
+      const tokenParam = `%${token}%`;
+      const condition = `(LOWER(title) LIKE $${paramIndex} OR LOWER(description) LIKE $${paramIndex + 1} OR $${paramIndex + 2} = ANY(COALESCE(keywords, ARRAY[]::text[])))`;
+      params.push(tokenParam, tokenParam, token);
+      paramIndex += 3;
+      return condition;
+    });
+    whereClauses.push(`(${tokenConditions.join(" AND ")})`);
+  }
+
+  const whereClause = whereClauses.join(" AND ");
+  const allowedOrderFields = ["createdAt", "price", "title", "displayId"];
+  const allowedDirections = ["asc", "desc"];
+
+  const safeOrderField = allowedOrderFields.includes(orderField)
+    ? orderField
+    : "createdAt";
+
+  const normalizedDirection = orderDirection.toLowerCase();
+
+  const safeOrderDirection = allowedDirections.includes(normalizedDirection)
+    ? normalizedDirection
+    : "desc";
+
+  const orderClause = `"${safeOrderField}" ${safeOrderDirection.toUpperCase()}`;
+
+  const [productsResult, countResult] = await Promise.all([
+    db.query(
+      `SELECT id, "businessId", "displayId", title, description, price, "imageUrl", "createdAt"
+       FROM products
+       WHERE ${whereClause}
+       ORDER BY ${orderClause}
+       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      [...params, limit, offset],
+    ),
+    db.query(
+      `SELECT COUNT(*) as count FROM products WHERE ${whereClause}`,
+      [...params],
+    ),
   ]);
 
+  const products = productsResult.rows;
+  const total = parseInt(countResult.rows[0].count, 10);
+
   const result = products.map((p) => ({
+    id: p.id,
     displayId: p.displayId,
     title: p.title,
     price: p.price,
     imageUrl: p.imageUrl || null,
-    createdAt: p.createdAt.toISOString(),
+    createdAt: p.createdAt ? new Date(p.createdAt).toISOString() : null,
   }));
 
   const display = result.map((p) => ({
     label: `${p.displayId}. ${p.title}`,
-    value: `$${p.price}`,
+    value: `$${p.price.toLocaleString()}`,
   }));
 
   const hasMore = offset + result.length < total;
@@ -101,7 +149,8 @@ export const listProductsTool: ToolHandler = async (
     },
   };
 
-  console.info('[listProducts] Response', { success: true, count: result.length, total });
+  logger.log(
+    `[listProducts] Response - success: true, count: ${result.length}, total: ${total}`,
+  );
   return response;
 };
-

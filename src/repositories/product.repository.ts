@@ -1,4 +1,5 @@
-import prisma from '../prisma';
+import { db } from '../db/db-client';
+import { v4 as uuidv4 } from 'uuid';
 
 export interface CreateProductData {
   businessId: string;
@@ -12,28 +13,41 @@ export interface CreateProductData {
 }
 
 export async function createProduct(data: CreateProductData) {
-  const last = await prisma.product.findFirst({
-    where: { businessId: data.businessId },
-    orderBy: { displayId: 'desc' },
-  });
+  const lastResult = await db.query(
+    `SELECT "displayId" FROM products WHERE "businessId" = $1 ORDER BY "displayId" DESC LIMIT 1`,
+    [data.businessId]
+  );
 
-  const nextDisplayId = (last?.displayId || 0) + 1;
+  const nextDisplayId = (lastResult.rows[0]?.displayId || 0) + 1;
 
   const normalizedKeywords = (data.keywords || [])
     .map(k => k.toLowerCase().trim())
     .filter(k => k.length > 2);
 
-  return prisma.product.create({
-    data: {
-      businessId: data.businessId,
-      displayId: nextDisplayId,
-      title: data.title,
-      description: data.description ?? undefined,
-      price: data.price ?? 0,
-      imageUrl: data.imageUrl ?? undefined,
-      sourceUrl: data.sourceUrl ?? undefined,
-      sourceType: data.sourceType ?? undefined,
-      keywords: normalizedKeywords,
-    },
-  });
+  const id = uuidv4();
+  const now = new Date();
+
+  const result = await db.query(
+    `INSERT INTO products (
+      id, "businessId", "displayId", title, description, price, "imageUrl", "sourceUrl", "sourceType", keywords, "createdAt", "updatedAt", is_active
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    RETURNING *`,
+    [
+      id,
+      data.businessId,
+      nextDisplayId,
+      data.title,
+      data.description || null,
+      data.price || 0,
+      data.imageUrl || null,
+      data.sourceUrl || null,
+      data.sourceType || null,
+      normalizedKeywords,
+      now,
+      now,
+      true
+    ]
+  );
+
+  return result.rows[0];
 }

@@ -1,5 +1,7 @@
+import { Logger } from "@nestjs/common";
 import { ToolHandler, ToolResult } from "../types";
-import { createProduct } from "../repositories/product.repository";
+
+const logger = new Logger("extractProductsFromImageTool");
 
 const TIMEOUT_MS = 3000;
 
@@ -30,7 +32,7 @@ Devuelve SOLO el JSON, sin texto adicional.`;
 interface ExtractedProduct {
   title: string;
   price: number;
-  description: string;
+  description?: string;
 }
 
 async function callOpenAI(imageUrl: string): Promise<ExtractedProduct[]> {
@@ -41,7 +43,7 @@ async function callOpenAI(imageUrl: string): Promise<ExtractedProduct[]> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4.1",
+      model: "gpt-4o-mini",
       input: [
         {
           role: "user",
@@ -66,30 +68,36 @@ async function callOpenAI(imageUrl: string): Promise<ExtractedProduct[]> {
 
   const data: any = await response.json();
 
-  console.debug('[extractProductsFromImage] OpenAI raw response received');
+  logger.debug("[extractProductsFromImage] OpenAI raw response received");
 
   const outputText =
     data.output_text || data.output?.[0]?.content?.[0]?.text || "";
 
-  console.debug('[extractProductsFromImage] OpenAI output text:', outputText);
+  logger.debug(
+    `[extractProductsFromImage] OpenAI output text: ${outputText.substring(0, 100)}...`,
+  );
   if (!outputText) {
-    console.debug('[extractProductsFromImage] No products extracted from image');
+    logger.debug("[extractProductsFromImage] No products extracted from image");
     return [];
   }
 
   try {
     const jsonMatch = outputText.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
-      console.debug('[extractProductsFromImage] Failed to parse OpenAI response');
+      logger.debug(
+        "[extractProductsFromImage] Failed to parse OpenAI response",
+      );
       return [];
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
     const products = Array.isArray(parsed) ? parsed : [];
-    console.debug('[extractProductsFromImage] Parsed products count:', products.length);
+    logger.debug(
+      `[extractProductsFromImage] Parsed products count: ${products.length}`,
+    );
     return products;
   } catch {
-    console.debug('[extractProductsFromImage] Failed to parse OpenAI response');
+    logger.debug("[extractProductsFromImage] Failed to parse OpenAI response");
     return [];
   }
 }
@@ -108,7 +116,9 @@ export const extractProductsFromImageTool: ToolHandler = async (
   context,
   args,
 ): Promise<ToolResult> => {
-  console.info('[extractProductsFromImage] Request', { businessId: context.businessId, args });
+  logger.log(
+    `[extractProductsFromImage] Request - businessId: ${context.businessId}`,
+  );
 
   if (!args.imageUrl || typeof args.imageUrl !== "string") {
     return { success: false, error: "VALIDATION_ERROR" };
@@ -126,40 +136,48 @@ export const extractProductsFromImageTool: ToolHandler = async (
 
     const validProducts = extractedProducts.filter(isValidProduct);
 
-    console.debug('[extractProductsFromImage] Valid products count:', validProducts.length);
+    logger.debug(
+      `[extractProductsFromImage] Valid products count: ${validProducts.length}`,
+    );
 
-    console.debug('[extractProductsFromImage] Saving products...');
-    let created = 0;
-    for (const product of validProducts) {
-      try {
-        await createProduct({
-          businessId: context.businessId,
-          title: product.title.trim(),
-          description: product.description || null,
-          price: product.price,
-          imageUrl: args.imageUrl,
-          sourceType: "image_extraction",
-        });
-        created++;
-      } catch (error) {
-        console.debug(`[extractProductsFromImage] Failed to create product: ${error}`);
-      }
+    if (validProducts.length === 0) {
+      return {
+        success: true,
+        data: {
+          type: "BUSINESS_ERROR",
+          message: "⚠️ No encontré productos válidos en la imagen.",
+        },
+      };
     }
-
-    console.debug('[extractProductsFromImage] Products saved:', created);
-
+    const normalizedProducts = validProducts.map((p) => ({
+      title: p.title.trim(),
+      price: p.price,
+      description:
+        typeof p.description === "string" ? p.description.trim() : "",
+    }));
     const result = {
       success: true,
-      data: { created },
+      data: {
+        products: normalizedProducts,
+        count: normalizedProducts.length,
+        display: normalizedProducts.map((p, i) => ({
+          label: `${i + 1}. ${p.title}`,
+          value: `$${p.price.toLocaleString()}`,
+        })),
+      },
     };
 
-    console.info('[extractProductsFromImage] Response', { success: true, created });
+    logger.log(
+      `[extractProductsFromImage] Response - success: true, count: ${validProducts.length}`,
+    );
     return result;
   } catch (error: any) {
-    console.info('[extractProductsFromImage] Response', { success: false, error: error.message });
+    logger.log(
+      `[extractProductsFromImage] Response - success: false, error: ${error.message}`,
+    );
 
     if (error.message === "TIMEOUT") {
-      throw error;
+      return { success: false, error: "TIMEOUT" };
     }
     return { success: false, error: "INTERNAL_ERROR" };
   }

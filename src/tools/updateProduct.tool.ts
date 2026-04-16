@@ -1,37 +1,40 @@
+import { Logger } from "@nestjs/common";
 import { ToolHandler, ToolResult } from "../types";
-import prisma from "../prisma";
+import { db } from "../db/db-client";
+
+const logger = new Logger("updateProductTool");
 
 export const updateProductTool: ToolHandler = async (
   context,
   args,
 ): Promise<ToolResult> => {
-  console.info('[updateProduct] Request', { businessId: context.businessId, args });
+  logger.log(`[updateProduct] Request - businessId: ${context.businessId}`);
 
   const productId = args.productId;
 
-  // 🔒 VALIDACIÓN
-  if (
-    typeof productId !== "string") {
+  if (typeof productId !== "string") {
     return {
       success: false,
-      data: {
-        message: "ID de producto inválido",
-      },
+      error: "VALIDATION_ERROR",
     };
   }
 
-  const existing = await prisma.product.findFirst({
-    where: {
-      businessId: context.businessId,
-      id: productId,
-    },
-  });
+  const existingResult = await db.query(
+    `SELECT id, "businessId", "displayId", title, description, price, "imageUrl"
+     FROM products
+     WHERE "businessId" = $1 AND id = $2 AND is_active = true
+     LIMIT 1`,
+    [context.businessId, productId],
+  );
+
+  const existing = existingResult.rows[0];
 
   if (!existing) {
     return {
-      success: false,
+      success: true,
       data: {
-        message: `No se encontró un producto con ID ${productId}`,
+        type: "BUSINESS_ERROR",
+        message: "❌ No encontré ese producto para actualizar.",
       },
     };
   }
@@ -55,22 +58,74 @@ export const updateProductTool: ToolHandler = async (
     dataToUpdate.imageUrl = args.imageUrl;
   }
 
-  // 🔥 NOTHING TO UPDATE
   if (Object.keys(dataToUpdate).length === 0) {
     return {
-      success: false,
+      success: true,
       data: {
-        message: "No se proporcionaron campos para actualizar",
+        type: "BUSINESS_ERROR",
+        message:
+          "⚠️ Indícame qué quieres actualizar (precio, título, descripción o imagen).",
       },
     };
   }
 
-  const updated = await prisma.product.update({
-    where: {
-      id: existing.id,
-    },
-    data: dataToUpdate,
-  });
+  const setClauses: string[] = [];
+  const updateParams: any[] = [];
+  let paramIndex = 1;
+
+  if (dataToUpdate.title) {
+    setClauses.push(`title = $${paramIndex}`);
+    updateParams.push(dataToUpdate.title);
+    paramIndex++;
+  }
+
+  if (dataToUpdate.price !== undefined) {
+    setClauses.push(`price = $${paramIndex}`);
+    updateParams.push(dataToUpdate.price);
+    paramIndex++;
+  }
+
+  if (dataToUpdate.description !== undefined) {
+    setClauses.push(`description = $${paramIndex}`);
+    updateParams.push(dataToUpdate.description);
+    paramIndex++;
+  }
+
+  if (dataToUpdate.imageUrl) {
+    setClauses.push(`"imageUrl" = $${paramIndex}`);
+    updateParams.push(dataToUpdate.imageUrl);
+    paramIndex++;
+  }
+
+  setClauses.push(`"updatedAt" = NOW()`);
+
+  const whereIdIndex = paramIndex;
+  const whereBusinessIndex = paramIndex + 1;
+
+  updateParams.push(existing.id);
+  updateParams.push(context.businessId);
+
+  const updatedResult = await db.query(
+    `UPDATE products
+   SET ${setClauses.join(", ")}
+   WHERE id = $${whereIdIndex} AND "businessId" = $${whereBusinessIndex}
+   RETURNING *`,
+    updateParams,
+  );
+  if (!updatedResult.rows.length) {
+    return {
+      success: false,
+      error: "INTERNAL_ERROR",
+    };
+  }
+  const updated = updatedResult.rows[0];
+
+  if (!updated) {
+    return {
+      success: false,
+      error: "INTERNAL_ERROR",
+    };
+  }
 
   // 🎯 RESPONSE UNIFICADA (MISMO CONTRATO QUE CREATE)
   const result = {
@@ -92,6 +147,8 @@ export const updateProductTool: ToolHandler = async (
     },
   };
 
-  console.info('[updateProduct] Response', { success: true, displayId: updated.displayId });
+  logger.log(
+    `[updateProduct] Response - success: true, displayId: ${updated.displayId}`,
+  );
   return result;
 };
