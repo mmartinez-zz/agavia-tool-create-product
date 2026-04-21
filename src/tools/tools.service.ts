@@ -1,11 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ToolContext, ToolHandler, ToolResult } from '../types';
-import { createProductTool } from './createProduct.tool';
-import { extractProductsFromImageTool } from './extractProductsFromImage.tool';
-import { listProductsTool } from './listProducts.tool';
-import { getProductByDisplayIdTool } from './getProductByDisplayId.tool';
-import { updateProductTool } from './updateProduct.tool';
-import { deactivateProductTool } from './deactivateProduct.tool';
+import { ToolContext, ToolHandler, ToolResult } from '../common/types';
+import { createProductTool } from './handlers/createProduct.handler';
+import { extractProductsFromImageTool } from './handlers/extractProductsFromImage.handler';
+import { listProductsTool } from './handlers/listProducts.handler';
+import { getProductByDisplayIdTool } from './handlers/getProductByDisplayId.handler';
+import { updateProductTool } from './handlers/updateProduct.handler';
+import { deactivateProductTool } from './handlers/deactivateProduct.handler';
 
 @Injectable()
 export class ToolsService {

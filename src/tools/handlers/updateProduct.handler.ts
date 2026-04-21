@@ -1,6 +1,6 @@
 import { Logger } from "@nestjs/common";
-import { ToolHandler, ToolResult } from "../types";
-import { db } from "../db/db-client";
+import { ToolHandler, ToolResult } from "../../common/types";
+import { ProductsService } from "../../products/products.service";
 
 const logger = new Logger("updateProductTool");
 
@@ -9,27 +9,25 @@ export const updateProductTool: ToolHandler = async (
   args,
 ): Promise<ToolResult> => {
   logger.log(`[updateProduct] Request - businessId: ${context.businessId}`);
+  logger.debug(`[updateProduct] Args received:`, JSON.stringify(args));
 
   const productId = args.productId;
+  logger.debug(`[updateProduct] ProductId: ${productId}`);
 
   if (typeof productId !== "string") {
+    logger.debug(`[updateProduct] Invalid productId type: ${typeof productId}`);
     return {
       success: false,
       error: "VALIDATION_ERROR",
     };
   }
 
-  const existingResult = await db.query(
-    `SELECT id, "businessId", "displayId", title, description, price, "imageUrl"
-     FROM products
-     WHERE "businessId" = $1 AND id = $2 AND is_active = true
-     LIMIT 1`,
-    [context.businessId, productId],
-  );
-
-  const existing = existingResult.rows[0];
+  logger.debug(`[updateProduct] Calling repository.getProductById`);
+  const repository = ProductsService.getRepository();
+  const existing = await repository.getProductById(context.businessId, productId);
 
   if (!existing) {
+    logger.debug(`[updateProduct] Product not found`);
     return {
       success: true,
       data: {
@@ -38,6 +36,8 @@ export const updateProductTool: ToolHandler = async (
       },
     };
   }
+
+  logger.debug(`[updateProduct] Product found - id: ${existing.id}, displayId: ${existing.displayId}`);
 
   // 🔧 BUILD UPDATE
   const dataToUpdate: any = {};
@@ -58,7 +58,10 @@ export const updateProductTool: ToolHandler = async (
     dataToUpdate.imageUrl = args.imageUrl;
   }
 
+  logger.debug(`[updateProduct] Fields to update:`, Object.keys(dataToUpdate));
+
   if (Object.keys(dataToUpdate).length === 0) {
+    logger.debug(`[updateProduct] No fields to update`);
     return {
       success: true,
       data: {
@@ -69,63 +72,25 @@ export const updateProductTool: ToolHandler = async (
     };
   }
 
-  const setClauses: string[] = [];
-  const updateParams: any[] = [];
-  let paramIndex = 1;
-
-  if (dataToUpdate.title) {
-    setClauses.push(`title = $${paramIndex}`);
-    updateParams.push(dataToUpdate.title);
-    paramIndex++;
-  }
-
-  if (dataToUpdate.price !== undefined) {
-    setClauses.push(`price = $${paramIndex}`);
-    updateParams.push(dataToUpdate.price);
-    paramIndex++;
-  }
-
-  if (dataToUpdate.description !== undefined) {
-    setClauses.push(`description = $${paramIndex}`);
-    updateParams.push(dataToUpdate.description);
-    paramIndex++;
-  }
-
-  if (dataToUpdate.imageUrl) {
-    setClauses.push(`"imageUrl" = $${paramIndex}`);
-    updateParams.push(dataToUpdate.imageUrl);
-    paramIndex++;
-  }
-
-  setClauses.push(`"updatedAt" = NOW()`);
-
-  const whereIdIndex = paramIndex;
-  const whereBusinessIndex = paramIndex + 1;
-
-  updateParams.push(existing.id);
-  updateParams.push(context.businessId);
-
-  const updatedResult = await db.query(
-    `UPDATE products
-   SET ${setClauses.join(", ")}
-   WHERE id = $${whereIdIndex} AND "businessId" = $${whereBusinessIndex}
-   RETURNING *`,
-    updateParams,
-  );
-  if (!updatedResult.rows.length) {
-    return {
-      success: false,
-      error: "INTERNAL_ERROR",
-    };
-  }
-  const updated = updatedResult.rows[0];
+  logger.debug(`[updateProduct] Calling repository.updateProduct`);
+  const updated = await repository.updateProduct({
+    id: existing.id,
+    businessId: context.businessId,
+    title: dataToUpdate.title,
+    price: dataToUpdate.price,
+    description: dataToUpdate.description,
+    imageUrl: dataToUpdate.imageUrl,
+  });
 
   if (!updated) {
+    logger.error(`[updateProduct] Update failed - no result from repository`);
     return {
       success: false,
       error: "INTERNAL_ERROR",
     };
   }
+
+  logger.debug(`[updateProduct] Product updated successfully - id: ${updated.id}`);
 
   // 🎯 RESPONSE UNIFICADA (MISMO CONTRATO QUE CREATE)
   const result = {

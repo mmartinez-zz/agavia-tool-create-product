@@ -1,9 +1,8 @@
 import { Logger } from "@nestjs/common";
-import { ToolHandler, ToolResult } from "../types";
-import { createProduct } from "../repositories/product.repository";
+import { ToolHandler, ToolResult } from "../../common/types";
+import { ProductsService } from "../../products/products.service";
 import { createClient } from "@supabase/supabase-js";
 import sharp from "sharp";
-import { db } from "../db/db-client";
 
 const logger = new Logger("createProductTool");
 
@@ -19,24 +18,6 @@ function getSupabaseClient() {
     );
   }
   return supabaseClient;
-}
-
-async function getBusinessCredentials(businessId: string) {
-  const result = await db.query(
-    `SELECT "twilioAccountSid", "twilioAuthToken" FROM businesses WHERE id = $1 LIMIT 1`,
-    [businessId],
-  );
-
-  if (result.rows.length === 0) {
-    throw new Error("BUSINESS_NOT_FOUND");
-  }
-
-  const business = result.rows[0];
-
-  return {
-    twilioAccountSid: business.twilioAccountSid,
-    twilioAuthToken: business.twilioAuthToken,
-  };
 }
 
 async function processImage(
@@ -60,7 +41,8 @@ async function processImage(
     let response;
 
     if (isTwilio) {
-      const credentials = await getBusinessCredentials(businessId);
+      const repository = ProductsService.getRepository();
+      const credentials = await repository.getBusinessCredentials(businessId);
 
       if (!credentials.twilioAccountSid || !credentials.twilioAuthToken) {
         throw new Error("MISSING_TWILIO_CREDENTIALS");
@@ -153,8 +135,10 @@ export const createProductTool: ToolHandler = async (
   args,
 ): Promise<ToolResult> => {
   logger.log(`[createProduct] Request - businessId: ${context.businessId}`);
+  logger.debug(`[createProduct] Args received:`, JSON.stringify(args));
 
   const title = typeof args.title === "string" ? args.title.trim() : "";
+  logger.debug(`[createProduct] Title extracted: "${title}"`);
 
   if (!title) {
     return {
@@ -169,7 +153,11 @@ export const createProductTool: ToolHandler = async (
   let finalImageUrl: string | null = null;
 
   if (args.imageUrl) {
+    logger.debug(`[createProduct] Processing image: ${args.imageUrl}`);
     finalImageUrl = await processImage(args.imageUrl, context.businessId);
+    logger.debug(`[createProduct] Image processed: ${finalImageUrl}`);
+  } else {
+    logger.debug(`[createProduct] No image provided`);
   }
 
   const timeout = new Promise<never>((_, reject) =>
@@ -177,6 +165,7 @@ export const createProductTool: ToolHandler = async (
   );
 
   if (typeof args.price !== "number") {
+    logger.debug(`[createProduct] Invalid price type: ${typeof args.price}`);
     return {
       success: true,
       data: {
@@ -186,11 +175,15 @@ export const createProductTool: ToolHandler = async (
     };
   }
 
+  logger.debug(`[createProduct] Price validated: ${args.price}`);
+
   let product;
 
   try {
+    logger.debug(`[createProduct] Calling repository.createProduct`);
+    const repository = ProductsService.getRepository();
     product = await Promise.race([
-      createProduct({
+      repository.createProduct({
         businessId: context.businessId,
         title,
         description: args.description ?? null,
@@ -204,13 +197,16 @@ export const createProductTool: ToolHandler = async (
     ]);
   } catch (error: any) {
     if (error.message === "TIMEOUT") {
+      logger.error(`[createProduct] Timeout creating product`);
       return { success: false, error: "TIMEOUT" };
     }
 
-    logger.error(`[createProduct] Error - ${error.message}`);
+    logger.error(`[createProduct] Error - ${error.message}`, error.stack);
 
     return { success: false, error: "INTERNAL_ERROR" };
   }
+
+  logger.debug(`[createProduct] Product created successfully - id: ${product.id}, displayId: ${product.displayId}`);
 
   const result = {
     success: true,

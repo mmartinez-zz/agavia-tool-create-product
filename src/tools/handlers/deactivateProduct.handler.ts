@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
-import { ToolHandler, ToolResult } from "../types";
-import { db } from "../db/db-client";
+import { ToolHandler, ToolResult } from "../../common/types";
+import { ProductsService } from "../../products/products.service";
 
 const logger = new Logger('deactivateProductTool');
 
@@ -11,10 +11,13 @@ export const deactivateProductTool: ToolHandler = async (
   args
 ): Promise<ToolResult> => {
   logger.log(`[deactivateProduct] Request - businessId: ${context.businessId}, productId: ${args.productId}`);
+  logger.debug(`[deactivateProduct] Args received:`, JSON.stringify(args));
 
   const productId = args.productId;
+  logger.debug(`[deactivateProduct] ProductId: ${productId}`);
 
   if (!productId) {
+    logger.debug(`[deactivateProduct] Missing productId`);
     return { success: false, error: "VALIDATION_ERROR" };
   }
 
@@ -23,24 +26,17 @@ export const deactivateProductTool: ToolHandler = async (
   );
 
   try {
+    logger.debug(`[deactivateProduct] Calling repository.deactivateProduct`);
+    const repository = ProductsService.getRepository();
     const result = await Promise.race([
-      db.query(
-        `
-        UPDATE products
-        SET
-          is_active = false,
-          deleted_at = NOW()
-        WHERE id = $1
-          AND "businessId" = $2
-          AND is_active = true
-        RETURNING id, title
-        `,
-        [productId, context.businessId]
-      ),
+      repository.deactivateProduct(context.businessId, productId),
       timeout,
     ]);
 
+    logger.debug(`[deactivateProduct] Repository result - rowCount: ${result.rowCount}`);
+
     if (result.rowCount === 0) {
+      logger.debug(`[deactivateProduct] Product not found or already deactivated`);
       return {
         success: true,
         data: {
@@ -50,7 +46,8 @@ export const deactivateProductTool: ToolHandler = async (
       };
     }
 
-    const product = result.rows[0];
+    const product = result.product;
+    logger.debug(`[deactivateProduct] Product deactivated successfully - id: ${product.id}, title: "${product.title}"`);
 
     return {
       success: true,
@@ -65,8 +62,9 @@ export const deactivateProductTool: ToolHandler = async (
       },
     };
   } catch (error) {
-    logger.error(`[deactivateProduct] Error: ${(error as Error).message}`);
+    logger.error(`[deactivateProduct] Error: ${(error as Error).message}`, (error as Error).stack);
     if ((error as Error).message === "TIMEOUT") {
+      logger.error(`[deactivateProduct] Timeout deactivating product`);
       return { success: false, error: "TIMEOUT" };
     }
     return {

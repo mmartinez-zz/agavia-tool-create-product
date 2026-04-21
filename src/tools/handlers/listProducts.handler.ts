@@ -1,8 +1,17 @@
 import { Logger } from "@nestjs/common";
-import { ToolHandler, ToolResult } from "../types";
-import { db } from "../db/db-client";
+import { ToolHandler, ToolResult } from "../../common/types";
+import { ProductsService } from "../../products/products.service";
 
 const logger = new Logger("listProductsTool");
+
+function normalize(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // remove accents
+    .replace(/s\b/g, "") // singular básico
+    .trim();
+}
 
 function buildDateFilter(
   dateFrom?: string,
@@ -37,8 +46,9 @@ export const listProductsTool: ToolHandler = async (
   args,
 ): Promise<ToolResult> => {
   logger.log(`[listProducts] Request - businessId: ${context.businessId}`);
+  logger.debug(`[listProducts] Args received:`, JSON.stringify(args));
 
-  const limit = Math.min(args.limit || 10, 50);
+const limit = Math.min(args.limit || 10, 50);
   const offset = Math.max(args.offset || 0, 0);
   const filters = args.filters || {};
   const text: string | undefined = filters.text?.trim();
@@ -46,14 +56,22 @@ export const listProductsTool: ToolHandler = async (
   const orderField = args.orderBy || "createdAt";
   const orderDirection = args.orderDirection || "desc";
 
+  logger.debug(`[listProducts] Pagination - limit: ${limit}, offset: ${offset}`);
+  logger.debug(`[listProducts] Search text: "${text || 'none'}"`);
+  logger.debug(`[listProducts] Order: ${orderField} ${orderDirection}`);
+
   const dateFilter = buildDateFilter(filters.dateFrom, filters.dateTo);
+  logger.debug(`[listProducts] Date filter:`, dateFilter);
+
+  const stopwords = ["de", "la", "el", "los", "las", "y", "con"];
 
   const searchTokens = text
-    ? text
-        .toLowerCase()
+    ? normalize(text)
         .split(/\s+/)
-        .filter((t) => t.length > 0)
+        .filter((t) => t.length > 2 && !stopwords.includes(t))
     : [];
+
+  logger.debug(`[listProducts] Search tokens:`, searchTokens);
 
   let whereClauses: string[] = [`"businessId" = $1`, `is_active = true`];
   const params: any[] = [businessId];
@@ -72,16 +90,30 @@ export const listProductsTool: ToolHandler = async (
     }
   }
 
-  if (searchTokens.length > 0) {
-    const tokenConditions = searchTokens.map((token) => {
-      const tokenParam = `%${token}%`;
-      const condition = `(LOWER(title) LIKE $${paramIndex} OR LOWER(description) LIKE $${paramIndex + 1} OR $${paramIndex + 2} = ANY(COALESCE(keywords, ARRAY[]::text[])))`;
-      params.push(tokenParam, tokenParam, token);
-      paramIndex += 3;
-      return condition;
-    });
-    whereClauses.push(`(${tokenConditions.join(" AND ")})`);
+  const tokenConditions = searchTokens.map((token) => {
+    const tokenParam = `%${token}%`;
+
+    const condition = `
+    (
+      unaccent(lower(title)) LIKE unaccent(lower($${paramIndex})) OR
+      unaccent(lower(description)) LIKE unaccent(lower($${paramIndex + 1})) OR
+      unaccent(lower($${paramIndex + 2})) = ANY(COALESCE(keywords, ARRAY[]::text[]))
+    )
+  `;
+
+    params.push(tokenParam, tokenParam, token);
+    paramIndex += 3;
+
+    return condition;
+  });
+
+  const joinOperator = searchTokens.length > 1 ? "AND" : "OR";
+  if (tokenConditions.length > 0) {
+    whereClauses.push(`(${tokenConditions.join(` ${joinOperator} `)})`);
   }
+
+  logger.debug(`[listProducts] WHERE clauses count: ${whereClauses.length}`);
+  logger.debug(`[listProducts] Query params count: ${params.length}`);
 
   const whereClause = whereClauses.join(" AND ");
   const allowedOrderFields = ["createdAt", "price", "title", "displayId"];
@@ -99,23 +131,19 @@ export const listProductsTool: ToolHandler = async (
 
   const orderClause = `"${safeOrderField}" ${safeOrderDirection.toUpperCase()}`;
 
-  const [productsResult, countResult] = await Promise.all([
-    db.query(
-      `SELECT id, "businessId", "displayId", title, description, price, "imageUrl", "createdAt"
-       FROM products
-       WHERE ${whereClause}
-       ORDER BY ${orderClause}
-       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
-      [...params, limit, offset],
-    ),
-    db.query(
-      `SELECT COUNT(*) as count FROM products WHERE ${whereClause}`,
-      [...params],
-    ),
-  ]);
+  logger.debug(`[listProducts] Calling repository.listProducts`);
+  const repository = ProductsService.getRepository();
+  const { products, total } = await repository.listProducts({
+    businessId,
+    whereClauses,
+    params,
+    orderClause,
+    limit,
+    offset,
+    paramIndex,
+  });
 
-  const products = productsResult.rows;
-  const total = parseInt(countResult.rows[0].count, 10);
+  logger.debug(`[listProducts] Query result - found: ${products.length}, total: ${total}`);
 
   const result = products.map((p) => ({
     id: p.id,
@@ -127,11 +155,13 @@ export const listProductsTool: ToolHandler = async (
   }));
 
   const display = result.map((p) => ({
-    label: `${p.displayId}. ${p.title}`,
-    value: `$${p.price.toLocaleString()}`,
+    displayId: p.displayId,
+    title: p.title,
+    price: p.price.toLocaleString(),
   }));
 
   const hasMore = offset + result.length < total;
+  logger.debug(`[listProducts] Has more: ${hasMore}`);
 
   const response = {
     success: true,

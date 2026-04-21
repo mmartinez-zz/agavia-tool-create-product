@@ -1,6 +1,6 @@
 import { Logger } from "@nestjs/common";
-import { ToolHandler, ToolResult } from "../types";
-import { db } from "../db/db-client";
+import { ToolHandler, ToolResult } from "../../common/types";
+import { ProductsService } from "../../products/products.service";
 
 const logger = new Logger("getProductByDisplayIdTool");
 
@@ -11,14 +11,17 @@ export const getProductByDisplayIdTool: ToolHandler = async (
   logger.log(
     `[getProductByDisplayId] Request - businessId: ${context.businessId}, displayId: ${args.displayId}`,
   );
+  logger.debug(`[getProductByDisplayId] Args received:`, JSON.stringify(args));
 
   const displayId = args.displayId;
+  logger.debug(`[getProductByDisplayId] DisplayId type: ${typeof displayId}, value: ${displayId}`);
 
   if (
     typeof displayId !== "number" ||
     !Number.isInteger(displayId) ||
     displayId <= 0
   ) {
+    logger.debug(`[getProductByDisplayId] Invalid displayId validation failed`);
     return {
       success: true,
       data: {
@@ -28,17 +31,12 @@ export const getProductByDisplayIdTool: ToolHandler = async (
     };
   }
 
-  const result = await db.query(
-    `SELECT id, "businessId", "displayId", title, description, price, "imageUrl"
-     FROM products
-     WHERE "businessId" = $1 AND "displayId" = $2 AND is_active = true
-     LIMIT 1`,
-    [context.businessId, displayId],
-  );
-
-  const product = result.rows[0];
+  logger.debug(`[getProductByDisplayId] Calling repository.getProductByDisplayId`);
+  const repository = ProductsService.getRepository();
+  const product = await repository.getProductByDisplayId(context.businessId, displayId);
 
   if (!product) {
+    logger.debug(`[getProductByDisplayId] Product not found`);
     return {
       success: true,
       data: {
@@ -47,6 +45,8 @@ export const getProductByDisplayIdTool: ToolHandler = async (
       },
     };
   }
+
+  logger.debug(`[getProductByDisplayId] Product found - id: ${product.id}, title: "${product.title}"`);
 
   const response = {
     success: true,

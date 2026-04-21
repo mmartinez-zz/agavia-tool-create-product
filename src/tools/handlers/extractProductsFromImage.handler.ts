@@ -1,5 +1,5 @@
 import { Logger } from "@nestjs/common";
-import { ToolHandler, ToolResult } from "../types";
+import { ToolHandler, ToolResult } from "../../common/types";
 
 const logger = new Logger("extractProductsFromImageTool");
 
@@ -36,6 +36,7 @@ interface ExtractedProduct {
 }
 
 async function callOpenAI(imageUrl: string): Promise<ExtractedProduct[]> {
+  logger.debug(`[callOpenAI] Calling OpenAI API with imageUrl: ${imageUrl}`);
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -63,8 +64,11 @@ async function callOpenAI(imageUrl: string): Promise<ExtractedProduct[]> {
   });
 
   if (!response.ok) {
+    logger.error(`[callOpenAI] OpenAI API error - status: ${response.status}`);
     throw new Error("OPENAI_ERROR");
   }
+
+  logger.debug(`[callOpenAI] OpenAI API response OK`);
 
   const data: any = await response.json();
 
@@ -119,8 +123,10 @@ export const extractProductsFromImageTool: ToolHandler = async (
   logger.log(
     `[extractProductsFromImage] Request - businessId: ${context.businessId}`,
   );
+  logger.debug(`[extractProductsFromImage] Args received:`, JSON.stringify(args));
 
   if (!args.imageUrl || typeof args.imageUrl !== "string") {
+    logger.debug(`[extractProductsFromImage] Invalid or missing imageUrl`);
     return { success: false, error: "VALIDATION_ERROR" };
   }
 
@@ -129,11 +135,13 @@ export const extractProductsFromImageTool: ToolHandler = async (
   );
 
   try {
+    logger.debug(`[extractProductsFromImage] Starting OpenAI extraction`);
     const extractedProducts = await Promise.race([
       callOpenAI(args.imageUrl),
       timeout,
     ]);
 
+    logger.debug(`[extractProductsFromImage] Extracted products count: ${extractedProducts.length}`);
     const validProducts = extractedProducts.filter(isValidProduct);
 
     logger.debug(
@@ -141,6 +149,7 @@ export const extractProductsFromImageTool: ToolHandler = async (
     );
 
     if (validProducts.length === 0) {
+      logger.debug(`[extractProductsFromImage] No valid products found`);
       return {
         success: true,
         data: {
@@ -149,6 +158,7 @@ export const extractProductsFromImageTool: ToolHandler = async (
         },
       };
     }
+    logger.debug(`[extractProductsFromImage] Normalizing ${validProducts.length} products`);
     const normalizedProducts = validProducts.map((p) => ({
       title: p.title.trim(),
       price: p.price,
@@ -172,13 +182,16 @@ export const extractProductsFromImageTool: ToolHandler = async (
     );
     return result;
   } catch (error: any) {
-    logger.log(
-      `[extractProductsFromImage] Response - success: false, error: ${error.message}`,
+    logger.error(
+      `[extractProductsFromImage] Error: ${error.message}`,
+      error.stack
     );
 
     if (error.message === "TIMEOUT") {
+      logger.error(`[extractProductsFromImage] Timeout extracting products`);
       return { success: false, error: "TIMEOUT" };
     }
+    logger.error(`[extractProductsFromImage] Internal error`);
     return { success: false, error: "INTERNAL_ERROR" };
   }
 };
