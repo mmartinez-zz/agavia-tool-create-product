@@ -2,6 +2,7 @@ export interface ToolContext {
   businessId: string;
   userPhone?: string;
   agentType?: string;
+  keywords?: string[];
 }
 
 export interface ExecuteRequest {
