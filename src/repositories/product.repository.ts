@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../infrastructure/db/database.service';
-import { v4 as uuidv4 } from 'uuid';
 
 export interface CreateProductData {
   businessId: string;
@@ -48,7 +47,7 @@ export class ProductRepository {
       .map(k => k.toLowerCase().trim())
       .filter(k => k.length > 2);
 
-    const id = uuidv4();
+    const id = crypto.randomUUID();
     const now = new Date();
 
     const result = await this.db.query(
